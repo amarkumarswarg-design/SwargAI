@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 
@@ -10,8 +9,6 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Chat endpoint - streams response
 app.post("/api/chat", async (req, res) => {
@@ -22,41 +19,72 @@ app.post("/api/chat", async (req, res) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
-      systemInstruction: `You are Swarg AI, a highly intelligent and friendly AI assistant created by Amar Kumar. 
-      You are helpful, creative, and concise. You support both Hindi and English languages naturally.
-      Always be warm and engaging in your responses.`,
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are Swarg AI, a highly intelligent and friendly AI assistant created by Amar Kumar. 
+            You are helpful, creative, and concise. You support both Hindi and English languages naturally.
+            Always be warm and engaging in your responses.`,
+          },
+          ...messages,
+        ],
+        stream: true,
+        max_tokens: 2048,
+      }),
     });
 
-    // Convert messages to Gemini format
-    const history = messages.slice(0, -1).map((msg) => ({
-      role: msg.role === "user" ? "user" : "model",
-      parts: [{ text: msg.content }],
-    }));
+    if (!response.ok) {
+      const err = await response.json();
+      return res.status(500).json({ error: err.error?.message || "Groq API error" });
+    }
 
-    const lastMessage = messages[messages.length - 1].content;
-
-    const chat = model.startChat({ history });
-
-    // Stream the response
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
-    const result = await chat.sendMessageStream(lastMessage);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      if (text) {
-        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          if (data === "[DONE]") {
+            res.write(`data: [DONE]\n\n`);
+            res.end();
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            const text = parsed.choices?.[0]?.delta?.content;
+            if (text) {
+              res.write(`data: ${JSON.stringify({ text })}\n\n`);
+            }
+          } catch {}
+        }
       }
     }
 
     res.write(`data: [DONE]\n\n`);
     res.end();
   } catch (err) {
-    console.error("Gemini error:", err);
+    console.error("Groq error:", err);
     res.status(500).json({ error: "AI error: " + err.message });
   }
 });
