@@ -4,7 +4,7 @@ import Message from "./components/Message";
 import ChatInput from "./components/ChatInput";
 import { getChats, saveChats, createNewChat, generateTitle } from "./utils/storage";
 import { sendMessage } from "./utils/api";
-import { Menu, X, Sparkles, Zap } from "lucide-react";
+import { Menu, Zap } from "lucide-react";
 
 const SUGGESTIONS = [
   "Explain quantum computing in simple terms",
@@ -18,9 +18,8 @@ export default function App() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const bottomRef = useRef(null);
-  const abortRef = useRef(null);
 
   useEffect(() => {
     const saved = getChats();
@@ -46,18 +45,19 @@ export default function App() {
     const updated = [...chats, chat];
     updateChats(updated);
     setActiveChatId(chat.id);
+    setSidebarOpen(false);
   };
 
   const handleSelectChat = (id) => {
     setActiveChatId(id);
-    if (window.innerWidth < 768) setSidebarOpen(false);
+    setSidebarOpen(false);
   };
 
   const handleDeleteChat = (id) => {
     const updated = chats.filter(c => c.id !== id);
     updateChats(updated);
     if (activeChatId === id) {
-      setActiveChatId(updated.length > 0 ? updated[0].id : null);
+      setActiveChatId(updated.length > 0 ? updated[updated.length - 1].id : null);
     }
   };
 
@@ -72,7 +72,6 @@ export default function App() {
     let chatId = activeChatId;
     let currentChats = [...chats];
 
-    // Create new chat if none active
     if (!chatId) {
       const newChat = createNewChat(generateTitle(text));
       currentChats = [...currentChats, newChat];
@@ -82,7 +81,6 @@ export default function App() {
 
     const userMsg = { role: "user", content: text };
 
-    // Add user message
     currentChats = currentChats.map(c => {
       if (c.id !== chatId) return c;
       const isFirst = c.messages.length === 0;
@@ -95,7 +93,6 @@ export default function App() {
     });
     updateChats(currentChats);
 
-    // Get full message history for API
     const chat = currentChats.find(c => c.id === chatId);
     const messages = chat.messages;
 
@@ -112,7 +109,6 @@ export default function App() {
           setStreamingContent(fullContent);
         },
         () => {
-          // On done - save AI message
           setStreamingContent("");
           setIsLoading(false);
           const aiMsg = { role: "assistant", content: fullContent };
@@ -138,10 +134,9 @@ export default function App() {
   };
 
   const handleStop = () => {
-    // Stop streaming (best effort)
     setIsLoading(false);
     if (streamingContent) {
-      const aiMsg = { role: "assistant", content: streamingContent + " _(stopped)_" };
+      const aiMsg = { role: "assistant", content: streamingContent };
       const updated = chats.map(c =>
         c.id === activeChatId
           ? { ...c, messages: [...c.messages, aiMsg] }
@@ -156,7 +151,7 @@ export default function App() {
   const showWelcome = messages.length === 0 && !isLoading;
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#080b14" }}>
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#080b14", position: "relative" }}>
       <style>{`
         @keyframes msgIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -166,8 +161,25 @@ export default function App() {
         .suggestion-btn:hover { background: rgba(56,189,248,0.15) !important; border-color: rgba(56,189,248,0.4) !important; }
       `}</style>
 
-      {/* Sidebar */}
+      {/* Mobile overlay */}
       {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            zIndex: 40,
+          }}
+        />
+      )}
+
+      {/* Sidebar - slide in on mobile */}
+      <div style={{
+        position: "fixed", top: 0, left: 0, height: "100%",
+        zIndex: 50,
+        transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.3s ease",
+      }}>
         <Sidebar
           chats={chats}
           activeChatId={activeChatId}
@@ -178,75 +190,74 @@ export default function App() {
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
-      )}
+      </div>
 
       {/* Main */}
-      <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+      <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", width: "100%" }}>
         {/* Header */}
         <header style={{
-          padding: "14px 20px",
+          padding: "12px 16px",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
           display: "flex", alignItems: "center", gap: "12px",
-          background: "rgba(8,11,20,0.8)", backdropFilter: "blur(10px)",
+          background: "rgba(8,11,20,0.95)", backdropFilter: "blur(10px)",
           zIndex: 10,
         }}>
           <button onClick={() => setSidebarOpen(v => !v)} style={{
             background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: "8px", padding: "7px", cursor: "pointer", color: "#8899aa",
+            borderRadius: "8px", padding: "8px", cursor: "pointer", color: "#8899aa",
             display: "flex", alignItems: "center",
           }}>
-            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
+            <Menu size={18} />
           </button>
 
-          <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <span style={{ fontWeight: 600, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>
               {activeChat?.title || "Swarg AI"}
             </span>
           </div>
 
           <div style={{
-            display: "flex", alignItems: "center", gap: "6px",
+            display: "flex", alignItems: "center", gap: "5px",
             background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.2)",
-            borderRadius: "20px", padding: "4px 12px",
+            borderRadius: "20px", padding: "4px 10px", flexShrink: 0,
           }}>
             <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#34d399", animation: "pulse 2s infinite" }} />
-            <span style={{ fontSize: "0.72rem", color: "#34d399", fontWeight: 500 }}>Gemini 2.0 Flash</span>
+            <span style={{ fontSize: "0.68rem", color: "#34d399", fontWeight: 500 }}>Llama 3.3</span>
           </div>
         </header>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 20px" }}>
-          <div style={{ maxWidth: "760px", margin: "0 auto" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+          <div style={{ maxWidth: "720px", margin: "0 auto" }}>
 
-            {/* Welcome screen */}
             {showWelcome && (
-              <div style={{ textAlign: "center", paddingTop: "60px", animation: "fadeIn 0.5s ease" }}>
+              <div style={{ textAlign: "center", paddingTop: "40px", animation: "fadeIn 0.5s ease" }}>
                 <div style={{
-                  width: "64px", height: "64px", borderRadius: "20px",
+                  width: "60px", height: "60px", borderRadius: "18px",
                   background: "linear-gradient(135deg, #38bdf8, #818cf8)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  margin: "0 auto 20px", fontSize: "28px",
+                  margin: "0 auto 16px", fontSize: "26px",
                   boxShadow: "0 0 40px rgba(56,189,248,0.3)",
                 }}>✦</div>
-                <h1 style={{ fontSize: "2rem", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "8px" }}>
+                <h1 style={{ fontSize: "1.7rem", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "6px" }}>
                   Swarg AI
                 </h1>
-                <p style={{ color: "#8899aa", fontSize: "0.95rem", marginBottom: "40px" }}>
-                  Powered by Gemini 2.0 Flash · Created by Amar Kumar
+                <p style={{ color: "#8899aa", fontSize: "0.85rem", marginBottom: "32px" }}>
+                  Powered by Llama 3.3 · Created by Amar Kumar
                 </p>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", maxWidth: "500px", margin: "0 auto" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                   {SUGGESTIONS.map((s, i) => (
                     <button key={i} onClick={() => handleSend(s)} className="suggestion-btn" style={{
                       background: "rgba(255,255,255,0.04)",
                       border: "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: "12px", padding: "14px",
-                      color: "#8899aa", fontSize: "0.82rem",
+                      borderRadius: "12px", padding: "12px",
+                      color: "#8899aa", fontSize: "0.78rem",
                       fontFamily: "Outfit", cursor: "pointer",
                       textAlign: "left", lineHeight: 1.5,
                       transition: "all 0.2s",
                     }}>
-                      <Zap size={12} style={{ marginRight: "6px", color: "#38bdf8" }} />
+                      <Zap size={11} style={{ marginRight: "5px", color: "#38bdf8" }} />
                       {s}
                     </button>
                   ))}
@@ -254,27 +265,21 @@ export default function App() {
               </div>
             )}
 
-            {/* Messages */}
             {messages.map((msg, i) => (
               <Message key={i} message={msg} isStreaming={false} />
             ))}
 
-            {/* Streaming message */}
             {isLoading && streamingContent && (
-              <Message
-                message={{ role: "assistant", content: streamingContent }}
-                isStreaming={true}
-              />
+              <Message message={{ role: "assistant", content: streamingContent }} isStreaming={true} />
             )}
 
-            {/* Thinking indicator */}
             {isLoading && !streamingContent && (
-              <div style={{ display: "flex", gap: "10px", marginBottom: "20px", animation: "fadeIn 0.3s" }}>
+              <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
                 <div style={{
-                  width: "32px", height: "32px", borderRadius: "10px",
+                  width: "30px", height: "30px", borderRadius: "10px",
                   background: "linear-gradient(135deg, #38bdf8, #818cf8)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "14px", flexShrink: 0,
+                  fontSize: "13px", flexShrink: 0,
                 }}>✦</div>
                 <div style={{
                   background: "#111827", border: "1px solid rgba(255,255,255,0.07)",
@@ -295,9 +300,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Input */}
         <ChatInput onSend={handleSend} isLoading={isLoading} onStop={handleStop} />
       </main>
     </div>
   );
-}
+                                       }
